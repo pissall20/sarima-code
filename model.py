@@ -1,13 +1,14 @@
 # grid search sarima hyperparameters for monthly car sales dataset
-from math import sqrt
+from datetime import timedelta
 from multiprocessing import cpu_count
 from time import time
 from warnings import catch_warnings
 from warnings import filterwarnings
 
+import pandas as pd
 from joblib import Parallel
 from joblib import delayed
-from pandas import read_csv, to_datetime
+from numpy import sqrt
 from sklearn.metrics import mean_squared_error
 from statsmodels.tsa.statespace.sarimax import SARIMAX
 from tqdm import tqdm
@@ -43,65 +44,67 @@ def train_test_split(data, n_test):
 
 
 # walk-forward validation for univariate data
-def walk_forward_validation(train, test, n_test, cfg):
+def walk_forward_validation(train, test, cfg):
+    internal_train, internal_test = train, test
     predictions = list()
     # seed history with training dataset
-    history = [x for x in train]
+    history = [x for x in internal_train]
     # step over each time-step in the test set
-    for i in range(len(test)):
+    for i in range(len(internal_test)):
         # fit model and make forecast for history
-        y_hat = sarima_forecast(history, cfg, walk_forward=True)
+        y_hat = sarima_forecast(history, cfg, prediction_steps=1, walk_forward=True)
         # store forecast in list of predictions
         predictions.append(y_hat)
         # add actual observation to history for the next loop
-        history.append(test[i])
+        history.append(internal_test[i])
     # estimate prediction error
-    error = measure_rmse(test, predictions)
+    error = measure_rmse(internal_test.tolist(), predictions)
     return error
 
 
 # score a model, return None on failure
-def score_model(train, test, n_test, cfg, debug=False):
+def score_model(train, test, cfg, debug=False, verbose=False):
     result = None
     # convert config to a key
     key = str(cfg)
     # show all warnings and fail on exception if debugging
     if debug:
-        result = walk_forward_validation(train, test, n_test, cfg)
+        result = walk_forward_validation(train, test, cfg)
     else:
         # one failure during model validation suggests an unstable config
         try:
             # never show warnings when grid searching, too noisy
             with catch_warnings():
                 filterwarnings("ignore")
-                result = walk_forward_validation(train, test, n_test, cfg)
+                result = walk_forward_validation(train, test, cfg)
         except:
             error = None
     # check for an interesting result
-    if result is not None:
+    if result and verbose:
         print(' > Model[%s] %.3f' % (key, result))
     return key, result
 
 
 # grid search configs
 def grid_search(data, cfg_list, n_test, parallel=True):
-    print("Doing a grid search. May take a while.")
     # split dataset
     train, test = train_test_split(data, n_test)
+    print("Doing a grid search. May take a while.")
     grid_start_time = time()
     if parallel:
         # execute configs in parallel
         executor = Parallel(n_jobs=cpu_count(), backend='multiprocessing')
-        tasks = (delayed(score_model)(train, test, n_test, cfg) for cfg in tqdm(cfg_list))
+        tasks = (delayed(score_model)(train, test, cfg) for cfg in tqdm(cfg_list))
         scores = executor(tasks)
     else:
-        scores = [score_model(train, test, n_test, cfg) for cfg in cfg_list]
+        scores = [score_model(train, test, cfg) for cfg in cfg_list]
     # remove empty results
     scores = [r for r in scores if r[1]]
     # sort configs by error, asc
     scores.sort(key=lambda tup: tup[1])
     grid_end_time = time()
     print(f"Time taken for grid search: {round(grid_end_time - grid_start_time, 2)} seconds")
+    print(scores)
     return scores
 
 
@@ -138,19 +141,21 @@ if __name__ == '__main__':
     date_column = "eventdate"
     kpi_column = "ear"
     # load dataset
-    data_set = read_csv('dataset_energy_timeseries_4_features_20130101_20191218.csv')
-    data_set[date_column] = to_datetime(data_set[date_column])
+    data_set = pd.read_csv('dataset_energy_timeseries_4_features_20130101_20191218.csv')
+    data_set[date_column] = pd.to_datetime(data_set[date_column])
     data_set = data_set.set_index(date_column)
     data_series = data_set[kpi_column]
     # data = series.values
     print(data_series.shape)
     # data split
-    # test_length = len(data_set) * 0.2
-    test_length = 4
+    test_length = len(data_set) * 0.1
+    # test_length = 1
 
     # model configs
-    # Input the seasonality config in terms of months. In this example I've given a 6 month
-    config_list = sarima_configs(seasonal=[0])
+    # Input the seasonality config in terms of months. In this example I've given yearly seasonality
+    # For quarterly seasonality you would send [0,3,6,9,12]
+    seasonality = [0]
+    config_list = sarima_configs(seasonal=seasonality)
     # grid search
     scores_all = grid_search(data_series, config_list, test_length)
     print('Done finding the best config for this given time series.\n There are the best 3 configs:')
@@ -158,5 +163,11 @@ if __name__ == '__main__':
     for top_config, least_error in scores_all[:3]:
         print(top_config, least_error)
 
-    final_pred = sarima_forecast(data_series, scores_all[0], 4)
-    print(final_pred)
+    # Use the top config for best prediction
+    final_prediction_steps = 4
+    final_prediction = sarima_forecast(data_series, eval(scores_all[0][0]), final_prediction_steps)
+    prediction_dates = [(max(data_set.index) + timedelta(days=7 * steps)) for steps in
+                        range(1, final_prediction_steps + 1)]
+
+    prediction_df = pd.DataFrame(zip(prediction_dates, final_prediction), columns=[date_column, kpi_column])
+    print(prediction_df)
