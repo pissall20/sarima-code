@@ -1,17 +1,16 @@
 # grid search sarima hyperparameters for monthly car sales dataset
+from math import sqrt
 from multiprocessing import cpu_count
-from typing import Optional, List, Any, Union, Tuple
+from time import time
 from warnings import catch_warnings
 from warnings import filterwarnings
-from time import time
 
 from joblib import Parallel
-from tqdm import tqdm
 from joblib import delayed
-from math import sqrt
 from pandas import read_csv, to_datetime
 from sklearn.metrics import mean_squared_error
 from statsmodels.tsa.statespace.sarimax import SARIMAX
+from tqdm import tqdm
 
 
 # one-step sarima forecast
@@ -102,7 +101,7 @@ def grid_search(data, cfg_list, n_test, parallel=True):
     # sort configs by error, asc
     scores.sort(key=lambda tup: tup[1])
     grid_end_time = time()
-    print(f"Time taken for grid search: {round(grid_end_time - grid_start_time,2)} seconds")
+    print(f"Time taken for grid search: {round(grid_end_time - grid_start_time, 2)} seconds")
     return scores
 
 
