@@ -1,4 +1,3 @@
-# grid search sarima hyperparameters for monthly car sales dataset
 from datetime import timedelta
 from multiprocessing import cpu_count
 from time import time
@@ -137,18 +136,16 @@ def sarima_configs(seasonal=None):
     return models
 
 
-if __name__ == '__main__':
-    date_column = "eventdate"
-    kpi_column = "ear"
+def custom_sarimax_prediction_function(file_path, date_col, y_column, test_size=0.1, freq='W', prediction_steps=4):
     # load dataset
-    data_set = pd.read_csv('dataset_energy_timeseries_4_features_20130101_20191218.csv')
-    data_set[date_column] = pd.to_datetime(data_set[date_column])
-    data_set = data_set.set_index(date_column)
-    data_series = data_set[kpi_column]
-    # data = series.values
-    print(data_series.shape)
+    data_set = pd.read_csv(file_path)
+    # Convert date column to date
+    data_set[date_col] = pd.to_datetime(data_set[date_col])
+    # Set the date as index
+    data_set = data_set.set_index(date_col)
+    data_series = data_set[y_column]
     # data split
-    test_length = len(data_set) * 0.1
+    test_length = len(data_set) * test_size
     # test_length = 1
 
     # model configs
@@ -164,10 +161,22 @@ if __name__ == '__main__':
         print(top_config, least_error)
 
     # Use the top config for best prediction
-    final_prediction_steps = 4
+    final_prediction_steps = prediction_steps
     final_prediction = sarima_forecast(data_series, eval(scores_all[0][0]), final_prediction_steps)
-    prediction_dates = [(max(data_set.index) + timedelta(days=7 * steps)) for steps in
-                        range(1, final_prediction_steps + 1)]
+    if freq == 'D':
+        prediction_dates = [(max(data_set.index) + timedelta(days=steps)) for steps in
+                            range(1, final_prediction_steps + 1)]
+    else:
+        # Weekly prediction dates
+        prediction_dates = [(max(data_set.index) + timedelta(days=7 * steps)) for steps in
+                            range(1, final_prediction_steps + 1)]
 
-    prediction_df = pd.DataFrame(zip(prediction_dates, final_prediction), columns=[date_column, kpi_column])
-    print(prediction_df)
+    prediction_df = pd.DataFrame(zip(prediction_dates, final_prediction), columns=[date_col, y_column])
+    return prediction_df
+
+
+if __name__ == '__main__':
+    file = 'dataset_energy_timeseries_4_features_20130101_20191218.csv'
+    date_column = "eventdate"
+    kpi_column = "ear"
+    print(custom_sarimax_prediction_function(file, date_column, kpi_column, prediction_steps=4))
