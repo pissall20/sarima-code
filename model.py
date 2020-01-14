@@ -26,7 +26,10 @@ def sarima_forecast(history, config, prediction_steps=4, walk_forward=False, ver
     # fit model
     model_fit = model.fit(disp=False)
     # make one step forecast
-    y_hat = model_fit.predict(prediction_steps)
+    if walk_forward:
+        y_hat = model_fit.predict(len(history), len(history))
+    else:
+        y_hat = model_fit.predict(prediction_steps)
     return y_hat
 
 
@@ -51,7 +54,7 @@ def walk_forward_validation(train, test, cfg):
     # step over each time-step in the test set
     for i in range(len(internal_test)):
         # fit model and make forecast for history
-        y_hat = sarima_forecast(history, cfg, prediction_steps=1, walk_forward=True)
+        y_hat = sarima_forecast(history, cfg, walk_forward=True)
         # store forecast in list of predictions
         predictions.append(y_hat)
         # add actual observation to history for the next loop
@@ -103,7 +106,6 @@ def grid_search(data, cfg_list, n_test, parallel=True):
     scores.sort(key=lambda tup: tup[1])
     grid_end_time = time()
     print(f"Time taken for grid search: {round(grid_end_time - grid_start_time, 2)} seconds")
-    print(scores)
     return scores
 
 
@@ -145,8 +147,8 @@ def custom_sarimax_prediction_function(file_path, date_col, y_column, test_size=
     data_set = data_set.set_index(date_col)
     data_series = data_set[y_column]
     # data split
-    test_length = len(data_set) * test_size
-    # test_length = 1
+    # test_length = len(data_set) * test_size
+    test_length = 1
 
     # model configs
     # Input the seasonality config in terms of months. In this example I've given yearly seasonality
